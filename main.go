@@ -1,3 +1,7 @@
+// Copyright (c) 2018 Benjamin Borbe All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package main
 
 import (
@@ -7,10 +11,10 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/bborbe/kafka-maxscale-cdc-connector/cdc"
-
 	flag "github.com/bborbe/flagenv"
+	"github.com/bborbe/kafka-maxscale-cdc-connector/cdc"
 	"github.com/golang/glog"
+	"github.com/google/uuid"
 )
 
 func main() {
@@ -26,6 +30,8 @@ func main() {
 	flag.StringVar(&app.CdcPassword, "cdc-password", "", "cdc password")
 	flag.StringVar(&app.CdcDatabase, "cdc-database", "", "cdc database")
 	flag.StringVar(&app.CdcTable, "cdc-table", "", "cdc table")
+	flag.StringVar(&app.CdcUUID, "cdc-uuid", uuid.New().String(), "cdc client identifier uuid")
+	flag.StringVar(&app.CdcFormat, "cdc-format", "JSON", "cdc output format (JSON|AVRO)")
 	flag.StringVar(&app.KafkaBrokers, "kafka-brokers", "", "kafka brokers")
 	flag.StringVar(&app.KafkaTopic, "kafka-topic", "", "kafka topic")
 
@@ -36,9 +42,10 @@ func main() {
 	glog.V(0).Infof("Parameter CdcPort: %d", app.CdcPort)
 	glog.V(0).Infof("Parameter CdcUser: %s", app.CdcUser)
 	glog.V(0).Infof("Parameter CdcPassword-Length: %d", len(app.CdcPassword))
-	glog.V(0).Infof("Parameter CdcUser: %s", app.CdcUser)
 	glog.V(0).Infof("Parameter CdcDatabase: %s", app.CdcDatabase)
 	glog.V(0).Infof("Parameter CdcTable: %s", app.CdcTable)
+	glog.V(0).Infof("Parameter CdcUUID: %s", app.CdcUUID)
+	glog.V(0).Infof("Parameter CdcFormat: %s", app.CdcFormat)
 	glog.V(0).Infof("Parameter KafkaBrokers: %s", app.KafkaBrokers)
 	glog.V(0).Infof("Parameter KafkaTopic: %s", app.KafkaTopic)
 	glog.V(0).Infof("Parameter Port: %d", app.Port)

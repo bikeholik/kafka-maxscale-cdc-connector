@@ -16,7 +16,7 @@ ensure:
 
 addlicense:
 	@go get github.com/google/addlicense
-	@addlicense -c "Benjamin Borbe" -y 2018 -l bsd ./*.go ./webhook/*.go
+	@addlicense -c "Benjamin Borbe" -y 2018 -l bsd ./*.go ./cdc/*.go ./cmd/*/*.go
 
 generate:
 	@go get github.com/maxbrunsfeld/counterfeiter

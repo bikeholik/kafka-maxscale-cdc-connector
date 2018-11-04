@@ -92,4 +92,4 @@ services:
     - KAFKA_TOPIC=cdc-test-names
     ports:
     - "8080:8080"
-    command: -v=3
+    command: -v=4

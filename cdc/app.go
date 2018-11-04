@@ -1,28 +1,38 @@
+// Copyright (c) 2018 Benjamin Borbe All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package cdc
 
 import (
 	"context"
 	"fmt"
 	"net/http"
+	"runtime"
+
 	"github.com/bborbe/run"
+	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"runtime"
 )
 
+// App for streaming changes from Mariadb to Kafka
 type App struct {
+	CdcDatabase  string
+	CdcFormat    string
 	CdcHost      string
 	CdcPassword  string
-	CdcDatabase  string
-	CdcTable     string
 	CdcPort      int
+	CdcTable     string
 	CdcUser      string
+	CdcUUID      string
 	KafkaBrokers string
 	KafkaTopic   string
 	Port         int
 }
 
+// Validate returns an error if not all required parameter are set
 func (a *App) Validate() error {
 	if a.Port <= 0 {
 		return errors.New("Port missing")
@@ -51,23 +61,36 @@ func (a *App) Validate() error {
 	if a.CdcTable == "" {
 		return errors.New("CdcTable missing")
 	}
+	if a.CdcUUID == "" {
+		return errors.New("CdcUUID missing")
+	}
+	if a.CdcTable == "" {
+		return errors.New("CdcTable missing")
+	}
+	if a.CdcFormat != "JSON" && a.CdcFormat != "AVRO" {
+		return errors.New("CdcFormat invalid")
+	}
 	return nil
 }
 
+// Run the app and blocks until error occurred or the context is canceled
 func (a *App) Run(ctx context.Context) error {
 	reader := &Reader{
-		Address:  fmt.Sprintf("%s:%d", a.CdcHost, a.CdcPort),
+		Dialer: &TcpDialer{
+			Address: fmt.Sprintf("%s:%d", a.CdcHost, a.CdcPort),
+		},
 		User:     a.CdcUser,
 		Password: a.CdcPassword,
 		Database: a.CdcDatabase,
 		Table:    a.CdcTable,
-		Format:   "JSON",
+		Format:   a.CdcFormat,
+		UUID:     a.CdcUUID,
 	}
 	sender := &Sender{
 		KafkaBrokers: a.KafkaBrokers,
 		KafkaTopic:   a.KafkaTopic,
 	}
-	ch := make(chan map[string]interface{}, runtime.NumCPU())
+	ch := make(chan []byte, runtime.NumCPU())
 	return run.CancelOnFirstFinish(
 		ctx,
 		a.runHttpServer,
@@ -92,7 +115,9 @@ func (a *App) runHttpServer(ctx context.Context) error {
 	go func() {
 		select {
 		case <-ctx.Done():
-			server.Shutdown(ctx)
+			if err := server.Shutdown(ctx); err != nil {
+				glog.Warningf("shutdown failed: %v", err)
+			}
 		}
 	}()
 	return server.ListenAndServe()

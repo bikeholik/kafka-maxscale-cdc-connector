@@ -1,0 +1,62 @@
+{
+	"type": "record",
+	"name": "ChangeRecord",
+	"namespace": "MaxScaleChangeDataSchema.avro",
+	"fields": [
+		{
+			"name": "domain",
+			"type": {
+				"type": "int"
+			}
+		},
+		{
+			"name": "server_id",
+			"type": {
+				"type": "int"
+			}
+		},
+		{
+			"name": "sequence",
+			"type": {
+				"type": "int"
+			}
+		},
+		{
+			"name": "event_number",
+			"type": {
+				"type": "int"
+			}
+		},
+		{
+			"name": "timestamp",
+			"type": {
+				"type": "int"
+			}
+		},
+		{
+			"name": "event_type",
+			"type": {
+				"type": "enum",
+				"name": "EVENT_TYPES",
+				"symbols": [
+					"insert",
+					"update_before",
+					"update_after",
+					"delete"
+				]
+			}
+		},
+		{
+			"name": "id",
+			"type": {
+				"type": "int"
+			}
+		},
+		{
+			"name": "name",
+			"type": {
+				"type": "string"
+			}
+		}
+	]
+}

@@ -1,3 +1,7 @@
+// Copyright (c) 2018 Benjamin Borbe All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package cdc
 
 import (
@@ -6,85 +10,94 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"github.com/golang/glog"
-	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"io"
-	"net"
+
+	"github.com/golang/glog"
+	"github.com/pkg/errors"
 )
 
+//go:generate counterfeiter -o ../mocks/dialer.go --fake-name Dialer . Dialer
+type Dialer interface {
+	Dial(ctx context.Context) (Connection, error)
+}
+
+// Reader of CDC messages from Maxscale
 type Reader struct {
-	Address  string
+	Dialer   Dialer
 	User     string
 	Password string
+	UUID     string
+	Format   string // JSON or AVRO
 	Database string
 	Table    string
-	Format   string // JSON or AVRO
+	Version  string
+	GTID     string
 }
 
 // Read all cdc and send them to the given channel
 // https://mariadb.com/resources/blog/how-to-stream-change-data-through-mariadb-maxscale-using-cdc-api/
-func (c *Reader) Read(ctx context.Context, ch chan<- map[string]interface{}) error {
-	defer close(ch)
+func (r *Reader) Read(ctx context.Context, ch chan<- []byte) error {
 
-	glog.V(2).Infof("connect to cdc %s", c.Address)
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", c.Address)
+	conn, err := r.Dialer.Dial(ctx)
 	if err != nil {
-		return errors.Wrapf(err, "connect to %s failed", c.Address)
+		return errors.Wrapf(err, "connect to cdc failed")
 	}
 	defer conn.Close()
 
-	err = c.writeAuth(conn)
+	err = r.writeAuth(conn)
 	if err != nil {
 		return err
 	}
-	err = c.expectResponse(conn, []byte("OK"))
+	err = r.expectResponse(conn, []byte("OK"))
 	if err != nil {
 		return err
 	}
-	glog.V(1).Infof("login successful to %s", c.Address)
+	glog.V(1).Infof("login successful")
 
-	id := uuid.New().String()
-	_, err = fmt.Fprintf(conn, "REGISTER UUID=%s, TYPE=%s", id, c.Format)
+	_, err = fmt.Fprintf(conn, "REGISTER UUID=%s, TYPE=%s", r.UUID, r.Format)
+	if err != nil {
+		return errors.Wrapf(err, "register with uuid: %s and type: %s failed", r.UUID, r.Format)
+	}
+	err = r.expectResponse(conn, []byte("OK"))
 	if err != nil {
 		return err
 	}
-	err = c.expectResponse(conn, []byte("OK"))
-	if err != nil {
-		return err
-	}
-	glog.V(1).Infof("registered with uuid %s successful", id)
+	glog.V(1).Infof("register with uuid: %s and type: %s successful", r.UUID, r.Format)
 
-	// REQUEST-DATA DATABASE.TABLE[.VERSION] [GTID]
-	_, err = fmt.Fprintf(conn, "REQUEST-DATA %s.%s", c.Database, c.Table)
+	_, err = conn.Write(r.buildRequestCommand())
 	if err != nil {
-		return err
+		return errors.Wrap(err, "write request to connection failed")
 	}
 
 	errs := make(chan error)
-	glog.V(1).Infof("start streaming of %s %s", c.Database, c.Table)
+	glog.V(1).Infof("start streaming of %s %s %s %s", r.Database, r.Table, r.Version, r.GTID)
 	go func() {
+		defer close(ch)
 		reader := bufio.NewReader(conn)
 		for {
 			line, err := reader.ReadBytes('\n')
 			if err == io.EOF {
 				glog.V(1).Infof("connection closed")
 				errs <- nil
+				return
 			}
 			if err != nil {
 				errs <- errors.Wrap(err, "read line failed")
+				return
 			}
-			if glog.V(3) {
+			if startsWith(line, []byte("ERR")) {
+				errs <- errors.Errorf("got error: %s", string(line))
+				return
+			}
+			if glog.V(4) {
 				glog.Infof("read %s", string(line))
 			}
-			var data map[string]interface{}
-			if err = json.NewDecoder(bytes.NewBuffer(line)).Decode(&data); err != nil {
-				errs <- errors.Wrap(err, "decode json failed")
+			select {
+			case ch <- line:
+			case <-ctx.Done():
+				return
 			}
-			ch <- data
 		}
 	}()
 
@@ -96,18 +109,31 @@ func (c *Reader) Read(ctx context.Context, ch chan<- map[string]interface{}) err
 	}
 }
 
-func (c *Reader) expectResponse(conn io.Reader, response []byte) error {
-	buf, err := c.read(conn)
+// REQUEST-DATA DATABASE.TABLE[.VERSION] [GTID]
+func (r *Reader) buildRequestCommand() []byte {
+	buf := bytes.NewBufferString("REQUEST-DATA ")
+	_, _ = fmt.Fprintf(buf, "%s.%s", r.Database, r.Table)
+	if len(r.Version) > 0 {
+		_, _ = fmt.Fprintf(buf, ".%s", r.Version)
+	}
+	if len(r.GTID) > 0 {
+		_, _ = fmt.Fprintf(buf, " %s", r.GTID)
+	}
+	return buf.Bytes()
+}
+
+func (r *Reader) expectResponse(conn io.Reader, expectedResponse []byte) error {
+	buf, err := r.read(conn)
 	if err != nil {
 		return err
 	}
-	if !bytes.Contains(buf, response) {
+	if !startsWith(buf, expectedResponse) {
 		return errors.New("login failed")
 	}
 	return nil
 }
 
-func (c *Reader) read(conn io.Reader) ([]byte, error) {
+func (r *Reader) read(conn io.Reader) ([]byte, error) {
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 	if err != nil {
@@ -116,12 +142,12 @@ func (c *Reader) read(conn io.Reader) ([]byte, error) {
 	return buf[0:n], nil
 }
 
-func (c *Reader) writeAuth(conn io.Writer) error {
+func (r *Reader) writeAuth(conn io.Writer) error {
 	h := sha1.New()
-	io.WriteString(h, c.Password)
+	io.WriteString(h, r.Password)
 
 	encoder := hex.NewEncoder(conn)
-	_, err := encoder.Write([]byte(fmt.Sprintf("%s:", c.User)))
+	_, err := encoder.Write([]byte(fmt.Sprintf("%s:", r.User)))
 	if err != nil {
 		return errors.Wrap(err, "hex encode failed")
 	}
@@ -130,4 +156,11 @@ func (c *Reader) writeAuth(conn io.Writer) error {
 		return errors.Wrap(err, "write failed")
 	}
 	return nil
+}
+
+func startsWith(line []byte, prefix []byte) bool {
+	if len(line) < len(prefix) {
+		return false
+	}
+	return bytes.Equal(line[0:len(prefix)], prefix)
 }

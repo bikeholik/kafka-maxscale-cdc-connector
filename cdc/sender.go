@@ -5,22 +5,22 @@
 package cdc
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"strings"
+
 	"github.com/Shopify/sarama"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 )
 
+// Sender takes a channel of []byte and send them to the given topic
 type Sender struct {
 	KafkaBrokers string
 	KafkaTopic   string
 }
 
-func (s *Sender) Send(ctx context.Context, ch <-chan map[string]interface{}) error {
+// Send the given messages to a topic in Kafka
+func (s *Sender) Send(ctx context.Context, ch <-chan []byte) error {
 	config := sarama.NewConfig()
 	config.Version = sarama.V2_0_0_0
 	config.Producer.RequiredAcks = sarama.WaitForAll
@@ -50,19 +50,9 @@ func (s *Sender) Send(ctx context.Context, ch <-chan map[string]interface{}) err
 			if !ok {
 				return nil
 			}
-			buf := &bytes.Buffer{}
-			err := json.NewEncoder(buf).Encode(data)
-			if err != nil {
-				return errors.Wrap(err, "encode json failed")
-			}
-			sequence, ok := data["sequence"]
-			if !ok {
-				glog.Warning("sequence not found in json")
-			}
 			partition, offset, err := producer.SendMessage(&sarama.ProducerMessage{
 				Topic: s.KafkaTopic,
-				Key:   sarama.StringEncoder(fmt.Sprintf("%v", sequence)),
-				Value: sarama.ByteEncoder(buf.Bytes()),
+				Value: sarama.ByteEncoder(data),
 			})
 			if err != nil {
 				return errors.Wrap(err, "send message to kafka failed")

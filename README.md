@@ -33,3 +33,15 @@ INSERT INTO test.names (name) VALUES ('World');
 go get github.com/Shopify/sarama/tools/kafka-console-consumer
 kafka-console-consumer -topic=cdc-test-names -brokers=kafka:9092
 ```
+
+## Docker Compose
+
+Sample for run Mariadb, Maxscale, Kafka, Zookeeper and the Connector inside Docker. 
+
+```bash
+docker-compose up \
+--force-recreate \
+--build \
+--detach
+```
+

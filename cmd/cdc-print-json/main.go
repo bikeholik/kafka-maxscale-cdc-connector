@@ -1,15 +1,20 @@
+// Copyright (c) 2018 Benjamin Borbe All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+// Sample of read and print cdc messages
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
-	"github.com/bborbe/kafka-maxscale-cdc-connector/cdc"
-	"github.com/golang/glog"
 	"os"
 	"os/signal"
 	"runtime"
 	"syscall"
+
+	"github.com/bborbe/kafka-maxscale-cdc-connector/cdc"
+	"github.com/golang/glog"
 )
 
 func main() {
@@ -22,7 +27,9 @@ func main() {
 	ctx := contextWithSig(context.Background())
 
 	cdcClient := &cdc.Reader{
-		Address:  "localhost:4001",
+		Dialer: &cdc.TcpDialer{
+			Address: "localhost:4001",
+		},
 		User:     "cdcuser",
 		Password: "cdc",
 		Database: "test",
@@ -30,13 +37,10 @@ func main() {
 		Format:   "JSON",
 	}
 
-	ch := make(chan map[string]interface{}, runtime.NumCPU())
+	ch := make(chan []byte, runtime.NumCPU())
 	go func() {
 		for line := range ch {
-			err := json.NewEncoder(os.Stdout).Encode(line)
-			if err != nil {
-				glog.Exitf("encode json failed")
-			}
+			os.Stdout.Write(line)
 		}
 	}()
 
