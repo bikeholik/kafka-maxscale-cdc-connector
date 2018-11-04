@@ -1,0 +1,10 @@
+{
+	"domain": 0,
+	"server_id": 1,
+	"sequence": 58,
+	"event_number": 1,
+	"timestamp": 1541348151,
+	"event_type": "insert",
+	"id": 4,
+	"name": "Hello"
+}

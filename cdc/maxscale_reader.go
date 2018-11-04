@@ -17,13 +17,14 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Dialer interface for open a new connection
 //go:generate counterfeiter -o ../mocks/dialer.go --fake-name Dialer . Dialer
 type Dialer interface {
 	Dial(ctx context.Context) (Connection, error)
 }
 
-// Reader of CDC messages from Maxscale
-type Reader struct {
+// MaxscaleReader of CDC messages from Maxscale
+type MaxscaleReader struct {
 	Dialer   Dialer
 	User     string
 	Password string
@@ -32,12 +33,11 @@ type Reader struct {
 	Database string
 	Table    string
 	Version  string
-	GTID     string
 }
 
 // Read all cdc and send them to the given channel
 // https://mariadb.com/resources/blog/how-to-stream-change-data-through-mariadb-maxscale-using-cdc-api/
-func (r *Reader) Read(ctx context.Context, ch chan<- []byte) error {
+func (r *MaxscaleReader) Read(ctx context.Context, gtid *GTID, ch chan<- []byte) error {
 
 	conn, err := r.Dialer.Dial(ctx)
 	if err != nil {
@@ -65,15 +65,14 @@ func (r *Reader) Read(ctx context.Context, ch chan<- []byte) error {
 	}
 	glog.V(1).Infof("register with uuid: %s and type: %s successful", r.UUID, r.Format)
 
-	_, err = conn.Write(r.buildRequestCommand())
+	_, err = conn.Write(r.buildRequestCommand(gtid))
 	if err != nil {
 		return errors.Wrap(err, "write request to connection failed")
 	}
 
 	errs := make(chan error)
-	glog.V(1).Infof("start streaming of %s %s %s %s", r.Database, r.Table, r.Version, r.GTID)
+	glog.V(1).Infof("start streaming of %s %s %s %s", r.Database, r.Table, r.Version, gtid)
 	go func() {
-		defer close(ch)
 		reader := bufio.NewReader(conn)
 		for {
 			line, err := reader.ReadBytes('\n')
@@ -110,19 +109,19 @@ func (r *Reader) Read(ctx context.Context, ch chan<- []byte) error {
 }
 
 // REQUEST-DATA DATABASE.TABLE[.VERSION] [GTID]
-func (r *Reader) buildRequestCommand() []byte {
+func (r *MaxscaleReader) buildRequestCommand(gtid *GTID) []byte {
 	buf := bytes.NewBufferString("REQUEST-DATA ")
 	_, _ = fmt.Fprintf(buf, "%s.%s", r.Database, r.Table)
 	if len(r.Version) > 0 {
 		_, _ = fmt.Fprintf(buf, ".%s", r.Version)
 	}
-	if len(r.GTID) > 0 {
-		_, _ = fmt.Fprintf(buf, " %s", r.GTID)
+	if gtid != nil {
+		_, _ = fmt.Fprintf(buf, " %s", gtid.String())
 	}
 	return buf.Bytes()
 }
 
-func (r *Reader) expectResponse(conn io.Reader, expectedResponse []byte) error {
+func (r *MaxscaleReader) expectResponse(conn io.Reader, expectedResponse []byte) error {
 	buf, err := r.read(conn)
 	if err != nil {
 		return err
@@ -133,7 +132,7 @@ func (r *Reader) expectResponse(conn io.Reader, expectedResponse []byte) error {
 	return nil
 }
 
-func (r *Reader) read(conn io.Reader) ([]byte, error) {
+func (r *MaxscaleReader) read(conn io.Reader) ([]byte, error) {
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 	if err != nil {
@@ -142,7 +141,7 @@ func (r *Reader) read(conn io.Reader) ([]byte, error) {
 	return buf[0:n], nil
 }
 
-func (r *Reader) writeAuth(conn io.Writer) error {
+func (r *MaxscaleReader) writeAuth(conn io.Writer) error {
 	h := sha1.New()
 	io.WriteString(h, r.Password)
 

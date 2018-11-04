@@ -24,6 +24,7 @@ func main() {
 
 	app := &cdc.App{}
 	flag.IntVar(&app.Port, "port", 9001, "port to listen")
+	flag.StringVar(&app.DataDir, "datadir", "", "data directory")
 	flag.StringVar(&app.CdcHost, "cdc-host", "", "cdc host")
 	flag.IntVar(&app.CdcPort, "cdc-port", 4001, "cdc port")
 	flag.StringVar(&app.CdcUser, "cdc-user", "", "cdc user")
@@ -49,6 +50,7 @@ func main() {
 	glog.V(0).Infof("Parameter KafkaBrokers: %s", app.KafkaBrokers)
 	glog.V(0).Infof("Parameter KafkaTopic: %s", app.KafkaTopic)
 	glog.V(0).Infof("Parameter Port: %d", app.Port)
+	glog.V(0).Infof("Parameter DataDir: %s", app.DataDir)
 
 	ctx := contextWithSig(context.Background())
 

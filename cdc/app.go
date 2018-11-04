@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"runtime"
 
 	"github.com/bborbe/run"
 	"github.com/golang/glog"
@@ -27,15 +26,20 @@ type App struct {
 	CdcTable     string
 	CdcUser      string
 	CdcUUID      string
+	CdcGTID      string
 	KafkaBrokers string
 	KafkaTopic   string
 	Port         int
+	DataDir      string
 }
 
 // Validate returns an error if not all required parameter are set
 func (a *App) Validate() error {
 	if a.Port <= 0 {
 		return errors.New("Port missing")
+	}
+	if a.DataDir == "" {
+		return errors.New("DataDir missing")
 	}
 	if a.KafkaBrokers == "" {
 		return errors.New("KafkaBrokers missing")
@@ -75,32 +79,54 @@ func (a *App) Validate() error {
 
 // Run the app and blocks until error occurred or the context is canceled
 func (a *App) Run(ctx context.Context) error {
-	reader := &Reader{
-		Dialer: &TcpDialer{
-			Address: fmt.Sprintf("%s:%d", a.CdcHost, a.CdcPort),
-		},
-		User:     a.CdcUser,
-		Password: a.CdcPassword,
-		Database: a.CdcDatabase,
-		Table:    a.CdcTable,
-		Format:   a.CdcFormat,
-		UUID:     a.CdcUUID,
-	}
-	sender := &Sender{
-		KafkaBrokers: a.KafkaBrokers,
-		KafkaTopic:   a.KafkaTopic,
-	}
-	ch := make(chan []byte, runtime.NumCPU())
 	return run.CancelOnFirstFinish(
 		ctx,
 		a.runHttpServer,
-		func(ctx context.Context) error {
-			return reader.Read(ctx, ch)
-		},
-		func(ctx context.Context) error {
-			return sender.Send(ctx, ch)
-		},
+		a.runStreamer,
 	)
+}
+
+func (a *App) runStreamer(ctx context.Context) error {
+	gtid, err := ParseGTID(a.CdcGTID)
+	if err != nil {
+		return errors.Wrap(err, "parse gtid failed")
+	}
+	gtidStore := &GTIDStore{
+		DataDir: a.DataDir,
+	}
+	if gtid == nil {
+		gtid, err = gtidStore.Read()
+		if err != nil {
+			glog.V(1).Infof("read gtid from disk failed")
+		}
+	}
+	gtidExtractor := &GTIDExtractor{
+		Format: a.CdcFormat,
+	}
+	streamer := &Streamer{
+		GTID: gtid,
+		Reader: &RetryReader{
+			GTIDExtractor: gtidExtractor,
+			Reader: &MaxscaleReader{
+				Dialer: &TcpDialer{
+					Address: fmt.Sprintf("%s:%d", a.CdcHost, a.CdcPort),
+				},
+				User:     a.CdcUser,
+				Password: a.CdcPassword,
+				Database: a.CdcDatabase,
+				Table:    a.CdcTable,
+				Format:   a.CdcFormat,
+				UUID:     a.CdcUUID,
+			},
+		},
+		Sender: &KafkaSender{
+			KafkaBrokers:  a.KafkaBrokers,
+			KafkaTopic:    a.KafkaTopic,
+			GTIDStore:     gtidStore,
+			GTIDExtractor: gtidExtractor,
+		},
+	}
+	return streamer.Run(ctx)
 }
 
 func (a *App) runHttpServer(ctx context.Context) error {

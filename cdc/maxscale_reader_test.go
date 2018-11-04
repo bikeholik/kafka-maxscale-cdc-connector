@@ -16,8 +16,8 @@ import (
 	"github.com/pkg/errors"
 )
 
-var _ = Describe("Reader", func() {
-	var reader *cdc.Reader
+var _ = Describe("MaxscaleReader", func() {
+	var reader *cdc.MaxscaleReader
 	var dialer *mocks.Dialer
 	var conn *mocks.Connection
 
@@ -25,7 +25,7 @@ var _ = Describe("Reader", func() {
 		dialer = &mocks.Dialer{}
 		conn = &mocks.Connection{}
 		dialer.DialReturns(conn, nil)
-		reader = &cdc.Reader{
+		reader = &cdc.MaxscaleReader{
 			Dialer:   dialer,
 			User:     "cdcuser",
 			Password: "cdc",
@@ -38,14 +38,14 @@ var _ = Describe("Reader", func() {
 
 	It("returns error if dial fails", func() {
 		dialer.DialReturns(nil, errors.New("banana"))
-		err := reader.Read(context.Background(), make(chan []byte))
+		err := reader.Read(context.Background(), nil, make(chan []byte))
 		Expect(err).NotTo(BeNil())
 		Expect(conn.WriteCallCount()).To(Equal(0))
 		Expect(conn.ReadCallCount()).To(Equal(0))
 	})
 
 	It("writes auth to connection", func() {
-		err := reader.Read(context.Background(), make(chan []byte))
+		err := reader.Read(context.Background(), nil, make(chan []byte))
 		Expect(err).NotTo(BeNil())
 		Expect(conn.WriteCallCount()).To(Equal(2))
 		Expect(conn.ReadCallCount()).To(Equal(1))
@@ -55,7 +55,7 @@ var _ = Describe("Reader", func() {
 
 	It("returns error if writes auth failed", func() {
 		conn.WriteReturns(0, errors.New("write banana"))
-		err := reader.Read(context.Background(), make(chan []byte))
+		err := reader.Read(context.Background(), nil, make(chan []byte))
 		Expect(err).NotTo(BeNil())
 		Expect(conn.WriteCallCount()).To(Equal(1))
 		Expect(conn.ReadCallCount()).To(Equal(0))
@@ -63,7 +63,7 @@ var _ = Describe("Reader", func() {
 
 	It("returns error if read failed", func() {
 		conn.ReadReturns(0, errors.New("read banana"))
-		err := reader.Read(context.Background(), make(chan []byte))
+		err := reader.Read(context.Background(), nil, make(chan []byte))
 		Expect(err).NotTo(BeNil())
 		Expect(conn.WriteCallCount()).To(Equal(2))
 		Expect(conn.ReadCallCount()).To(Equal(1))
@@ -76,7 +76,7 @@ var _ = Describe("Reader", func() {
 			n := copy(bytes[:], "ERR banana")
 			return n, nil
 		}
-		err := reader.Read(context.Background(), make(chan []byte))
+		err := reader.Read(context.Background(), nil, make(chan []byte))
 		Expect(err).NotTo(BeNil())
 		Expect(conn.WriteCallCount()).To(Equal(2))
 		Expect(conn.ReadCallCount()).To(Equal(1))
@@ -94,7 +94,7 @@ var _ = Describe("Reader", func() {
 			}
 			return 0, errors.New("read banana")
 		}
-		err := reader.Read(context.Background(), make(chan []byte))
+		err := reader.Read(context.Background(), nil, make(chan []byte))
 		Expect(err).NotTo(BeNil())
 		Expect(conn.WriteCallCount()).To(Equal(3))
 		Expect(string(conn.WriteArgsForCall(0))).To(Equal("636463757365723a"))
@@ -108,7 +108,7 @@ var _ = Describe("Reader", func() {
 			return n, nil
 		}
 		conn.WriteReturnsOnCall(2, 0, errors.New("write banana"))
-		err := reader.Read(context.Background(), make(chan []byte))
+		err := reader.Read(context.Background(), nil, make(chan []byte))
 		Expect(err).NotTo(BeNil())
 		Expect(conn.WriteCallCount()).To(Equal(3))
 		Expect(string(conn.WriteArgsForCall(0))).To(Equal("636463757365723a"))
@@ -130,7 +130,7 @@ var _ = Describe("Reader", func() {
 			}
 			return 0, errors.New("read banana")
 		}
-		err := reader.Read(context.Background(), make(chan []byte))
+		err := reader.Read(context.Background(), nil, make(chan []byte))
 		Expect(err).NotTo(BeNil())
 		Expect(conn.ReadCallCount()).To(Equal(2))
 		Expect(conn.WriteCallCount()).To(Equal(3))
@@ -149,7 +149,7 @@ var _ = Describe("Reader", func() {
 			}
 			return 0, errors.New("read banana")
 		}
-		err := reader.Read(context.Background(), make(chan []byte))
+		err := reader.Read(context.Background(), nil, make(chan []byte))
 		Expect(err).NotTo(BeNil())
 		Expect(conn.ReadCallCount()).To(Equal(3))
 		Expect(conn.WriteCallCount()).To(Equal(4))
@@ -157,6 +157,29 @@ var _ = Describe("Reader", func() {
 		Expect(string(conn.WriteArgsForCall(1))).To(Equal("11fb6d5a105a66c85408b8005c461d53818b736e"))
 		Expect(string(conn.WriteArgsForCall(2))).To(Equal("REGISTER UUID=0f672312-e02a-11e8-8c13-cf8f48795343, TYPE=JSON"))
 		Expect(string(conn.WriteArgsForCall(3))).To(Equal("REQUEST-DATA mydb.mytable"))
+	})
+
+	It("send version and gtid if defined", func() {
+		reader.Version = "000003"
+		readCounter := 0
+		conn.ReadStub = func(bytes []byte) (int, error) {
+			readCounter++
+			if readCounter == 1 || readCounter == 2 {
+				n := copy(bytes[:], "OK\n")
+				return n, nil
+			}
+			return 0, errors.New("read banana")
+		}
+		gtid, err := cdc.ParseGTID("0-11-345")
+		Expect(err).To(BeNil())
+		err = reader.Read(context.Background(), gtid, make(chan []byte))
+		Expect(err).NotTo(BeNil())
+		Expect(conn.ReadCallCount()).To(Equal(3))
+		Expect(conn.WriteCallCount()).To(Equal(4))
+		Expect(string(conn.WriteArgsForCall(0))).To(Equal("636463757365723a"))
+		Expect(string(conn.WriteArgsForCall(1))).To(Equal("11fb6d5a105a66c85408b8005c461d53818b736e"))
+		Expect(string(conn.WriteArgsForCall(2))).To(Equal("REGISTER UUID=0f672312-e02a-11e8-8c13-cf8f48795343, TYPE=JSON"))
+		Expect(string(conn.WriteArgsForCall(3))).To(Equal("REQUEST-DATA mydb.mytable.000003 0-11-345"))
 	})
 
 	It("returns error if request returns ERR", func() {
@@ -173,7 +196,7 @@ var _ = Describe("Reader", func() {
 			}
 			return 0, errors.New("read banana")
 		}
-		err := reader.Read(context.Background(), make(chan []byte))
+		err := reader.Read(context.Background(), nil, make(chan []byte))
 		Expect(err).NotTo(BeNil())
 		Expect(conn.ReadCallCount()).To(Equal(3))
 		Expect(conn.WriteCallCount()).To(Equal(4))
@@ -198,7 +221,7 @@ var _ = Describe("Reader", func() {
 			return 0, io.EOF
 		}
 		ch := make(chan []byte, 10)
-		err := reader.Read(context.Background(), ch)
+		err := reader.Read(context.Background(), nil, ch)
 		Expect(err).To(BeNil())
 		Expect(conn.ReadCallCount()).To(Equal(5))
 		Expect(conn.WriteCallCount()).To(Equal(4))

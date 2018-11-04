@@ -26,7 +26,7 @@ func main() {
 	flag.Parse()
 	ctx := contextWithSig(context.Background())
 
-	cdcClient := &cdc.Reader{
+	cdcClient := &cdc.MaxscaleReader{
 		Dialer: &cdc.TcpDialer{
 			Address: "localhost:4001",
 		},
@@ -44,7 +44,7 @@ func main() {
 		}
 	}()
 
-	err := cdcClient.Read(ctx, ch)
+	err := cdcClient.Read(ctx, nil, ch)
 	if err != nil {
 		glog.Exitf("%+v", err)
 	}

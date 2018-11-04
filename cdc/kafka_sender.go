@@ -13,23 +13,29 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Sender takes a channel of []byte and send them to the given topic
-type Sender struct {
+// KafkaSender takes a channel of []byte and send them to the given topic
+type KafkaSender struct {
 	KafkaBrokers string
 	KafkaTopic   string
+	GTIDStore    interface {
+		Write(gtid *GTID) error
+	}
+	GTIDExtractor interface {
+		Parse(line []byte) (*GTID, error)
+	}
 }
 
 // Send the given messages to a topic in Kafka
-func (s *Sender) Send(ctx context.Context, ch <-chan []byte) error {
+func (k *KafkaSender) Send(ctx context.Context, ch <-chan []byte) error {
 	config := sarama.NewConfig()
 	config.Version = sarama.V2_0_0_0
 	config.Producer.RequiredAcks = sarama.WaitForAll
 	config.Producer.Retry.Max = 10
 	config.Producer.Return.Successes = true
 
-	glog.V(3).Infof("connect to brokers %s", s.KafkaBrokers)
+	glog.V(3).Infof("connect to brokers %s", k.KafkaBrokers)
 
-	client, err := sarama.NewClient(strings.Split(s.KafkaBrokers, ","), config)
+	client, err := sarama.NewClient(strings.Split(k.KafkaBrokers, ","), config)
 	if err != nil {
 		return errors.Wrap(err, "create client failed")
 	}
@@ -50,14 +56,22 @@ func (s *Sender) Send(ctx context.Context, ch <-chan []byte) error {
 			if !ok {
 				return nil
 			}
+			gtid, err := k.GTIDExtractor.Parse(data)
+			if err != nil {
+				return errors.Wrap(err, "extract gtid failed")
+			}
 			partition, offset, err := producer.SendMessage(&sarama.ProducerMessage{
-				Topic: s.KafkaTopic,
+				Topic: k.KafkaTopic,
+				Key:   sarama.StringEncoder(gtid.String()),
 				Value: sarama.ByteEncoder(data),
 			})
 			if err != nil {
 				return errors.Wrap(err, "send message to kafka failed")
 			}
-			glog.V(3).Infof("send message successful to %s with partition %d offset %d", s.KafkaTopic, partition, offset)
+			glog.V(3).Infof("send message successful to %s with partition %d offset %d", k.KafkaTopic, partition, offset)
+			if err := k.GTIDStore.Write(gtid); err != nil {
+				return errors.Wrap(err, "save gtid failed")
+			}
 		}
 	}
 }

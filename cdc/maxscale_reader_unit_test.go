@@ -10,7 +10,7 @@ import (
 )
 
 func TestPrintAuth(t *testing.T) {
-	c := &Reader{
+	c := &MaxscaleReader{
 		User:     "cdcuser",
 		Password: "cdc",
 	}

@@ -19,9 +19,9 @@ addlicense:
 	@addlicense -c "Benjamin Borbe" -y 2018 -l bsd ./*.go ./cdc/*.go ./cmd/*/*.go
 
 generate:
-	@go get github.com/maxbrunsfeld/counterfeiter
-	@rm -rf mocks
-	@go generate ./...
+	go get github.com/maxbrunsfeld/counterfeiter
+	rm -rf mocks
+	go generate ./...
 
 test:
 	go test -cover -race $(shell go list ./... | grep -v /vendor/)

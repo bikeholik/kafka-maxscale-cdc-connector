@@ -25,6 +25,7 @@ var _ = Describe("CDC App", func() {
 			KafkaBrokers: "kafka:9092",
 			KafkaTopic:   "mytopic",
 			Port:         8080,
+			DataDir:      "/tmp",
 		}
 	})
 	It("Validate without error", func() {
@@ -82,5 +83,8 @@ var _ = Describe("CDC App", func() {
 		app.Port = 0
 		Expect(app.Validate()).To(HaveOccurred())
 	})
-
+	It("Validate returns error if DataDir is empty", func() {
+		app.DataDir = ""
+		Expect(app.Validate()).To(HaveOccurred())
+	})
 })

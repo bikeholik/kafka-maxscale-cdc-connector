@@ -14,6 +14,7 @@ go run main.go \
 -cdc-table=names \
 -kafka-brokers=kafka:9092 \
 -kafka-topic=cdc-test-names \
+-datadir=/tmp \
 -v=2
 ```
 

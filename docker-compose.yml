@@ -82,6 +82,7 @@ services:
       context: .
     environment:
     - PORT=8080
+    - DATADIR=/
     - CDC_HOST=maxscale
     - CDC_PORT=4001
     - CDC_USER=cdcuser
