@@ -1,0 +1,95 @@
+version: '3'
+services:
+  mariadb:
+    container_name: mariadb
+    image: mariadb:10.3.10
+    environment:
+    - MYSQL_ROOT_HOST=%
+    - MYSQL_ROOT_PASSWORD=123
+    - MYSQL_USER=myuser
+    - MYSQL_DATABASE=mydb
+    - MYSQL_PASSWORD=mypass
+    volumes:
+    - ./mariadb:/docker-entrypoint-initdb.d
+    ports:
+    - "3306:3306"
+    command: --log-bin=binlog --server_id=1 --sync_binlog=1 --innodb_flush_log_at_trx_commit=1 --binlog_format=row --binlog_row_image=full
+
+  maxscale:
+    container_name: maxscale
+    image: mariadb/maxscale:2.2.15
+    volumes:
+    - ./maxscale/maxscale.cnf:/etc/maxscale.cnf.d/maxscale.cnf
+    - ./maxscale/master.ini:/var/lib/maxscale/master.ini
+    ports:
+    - "4001:4001"
+    depends_on:
+    - mariadb
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:5.0.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+    - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-enterprise-kafka:5.0.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+    - zookeeper
+    ports:
+    - "9092:9092"
+    - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_METRIC_REPORTERS: io.confluent.metrics.reporter.ConfluentMetricsReporter
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: kafka:9092
+      CONFLUENT_METRICS_REPORTER_ZOOKEEPER_CONNECT: zookeeper:2181
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      CONFLUENT_METRICS_ENABLE: 'false'
+      CONFLUENT_SUPPORT_CUSTOMER_ID: 'anonymous'
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:5.0.0
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+    - zookeeper
+    - kafka
+    ports:
+    - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: 'zookeeper:2181'
+
+  connector:
+    container_name: connector
+    depends_on:
+    - kafka
+    - maxscale
+    image: maxscale-cdc-connector
+    build:
+      context: .
+    environment:
+    - PORT=8080
+    - CDC_HOST=maxscale
+    - CDC_PORT=4001
+    - CDC_USER=cdcuser
+    - CDC_PASSWORD=cdc
+    - CDC_DATABASE=test
+    - CDC_TABLE=names
+    - KAFKA_BROKERS=kafka:9092
+    - KAFKA_TOPIC=cdc-test-names
+    ports:
+    - "8080:8080"
+    command: -v=3
