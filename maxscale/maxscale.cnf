@@ -1,9 +1,11 @@
 [replication-service]
 type=service
 router=binlogrouter
-router_options=server_id=4000,binlogdir=/var/lib/maxscale,filestem=binlog
+server_id=1
+filestem=binlog
 user=repl
 password=repl
+mariadb10-compatibility=0
 
 [replication-Listener]
 type=listener
@@ -17,6 +19,7 @@ router=avrorouter
 source=replication-service
 user=cdcuser
 password=cdc
+filestem=binlog
 
 [cdc-listener]
 type=listener

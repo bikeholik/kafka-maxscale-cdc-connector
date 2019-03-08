@@ -6,18 +6,18 @@ services:
     environment:
     - MYSQL_ROOT_HOST=%
     - MYSQL_ROOT_PASSWORD=123
-    - MYSQL_USER=myuser
-    - MYSQL_DATABASE=mydb
-    - MYSQL_PASSWORD=mypass
+    - MYSQL_USER=cdcuser
+    - MYSQL_DATABASE=test
+    - MYSQL_PASSWORD=cdc
     volumes:
     - ./mariadb:/docker-entrypoint-initdb.d
     ports:
     - "3306:3306"
-    command: --log-bin=binlog --server_id=1 --sync_binlog=1 --innodb_flush_log_at_trx_commit=1 --binlog_format=row --binlog_row_image=full
+    command: --log-bin=binlog --server-id=1 --sync-binlog=1 --innodb-flush-log-at-trx-commit=1 --binlog-format=ROW --binlog-row-image=FULL
 
   maxscale:
     container_name: maxscale
-    image: mariadb/maxscale:2.2.15
+    image: mariadb/maxscale:2.3.4
     volumes:
     - ./maxscale/maxscale.cnf:/etc/maxscale.cnf.d/maxscale.cnf
     - ./maxscale/master.ini:/var/lib/maxscale/master.ini
@@ -75,7 +75,7 @@ services:
   connector:
     container_name: connector
     depends_on:
-    - kafka
+    - schema-registry
     - maxscale
     image: maxscale-cdc-connector
     build:
@@ -89,8 +89,16 @@ services:
     - CDC_PASSWORD=cdc
     - CDC_DATABASE=test
     - CDC_TABLE=names
+#    - CDC_FORMAT=AVRO
     - KAFKA_BROKERS=kafka:9092
     - KAFKA_TOPIC=cdc-test-names
     ports:
     - "8080:8080"
     command: -v=4
+
+  example-cdc-container:
+    container_name: example-cdc-container
+    image: python:3.8-rc-slim-stretch
+    volumes:
+      - ./python:/scripts
+    command: [ "python", "/scripts/cdc.py", "-u", "cdcuser", "-pcdc", "-h", "maxscale", "-P", "4001", "test.names" ]

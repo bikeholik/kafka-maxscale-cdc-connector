@@ -56,21 +56,25 @@ func (k *KafkaSender) Send(ctx context.Context, ch <-chan []byte) error {
 			if !ok {
 				return nil
 			}
+			glog.V(3).Infof("parse '%s'", string(data))
 			gtid, err := k.GTIDExtractor.Parse(data)
 			if err != nil {
-				return errors.Wrap(err, "extract gtid failed")
-			}
-			partition, offset, err := producer.SendMessage(&sarama.ProducerMessage{
-				Topic: k.KafkaTopic,
-				Key:   sarama.StringEncoder(gtid.String()),
-				Value: sarama.ByteEncoder(data),
-			})
-			if err != nil {
-				return errors.Wrap(err, "send message to kafka failed")
-			}
-			glog.V(3).Infof("send message successful to %s with partition %d offset %d", k.KafkaTopic, partition, offset)
-			if err := k.GTIDStore.Write(gtid); err != nil {
-				return errors.Wrap(err, "save gtid failed")
+				glog.V(3).Infof("Error extracting gtid: %s", err)
+				//return errors.Wrap(err, "extract gtid failed")
+			} else {
+				glog.V(3).Infof("send '%s' from %s", string(data), gtid)
+				partition, offset, err := producer.SendMessage(&sarama.ProducerMessage{
+					Topic: k.KafkaTopic,
+					Key:   sarama.StringEncoder(gtid.String()),
+					Value: sarama.ByteEncoder(data),
+				})
+				if err != nil {
+					return errors.Wrap(err, "send message to kafka failed")
+				}
+				glog.V(3).Infof("send message successful to %s with partition %d offset %d", k.KafkaTopic, partition, offset)
+				if err := k.GTIDStore.Write(gtid); err != nil {
+					return errors.Wrap(err, "save gtid failed")
+				}
 			}
 		}
 	}
